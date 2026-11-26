@@ -96,23 +96,37 @@ function playAt(i) {
   paused = false
   player.loadVideoById(list[order[at]])
 }
-// the play order: in turn, or shuffled with the song playing now first (a song taken out of
-// the queue stays out)
-function reorder() {
-  const n = list ? list.length : 0
-  const cur = order.length ? order[at] : at
-  order = Array.from({ length: n }, (_, k) => k).filter((k) => k === cur || list[k])
-  if (!shuffle) return void (at = cur)
-  for (let k = n - 1; k > 0; k--) {
+// While shuffled, the order you had (with what you've added since, less what you took out) is
+// kept, and comes back when shuffle goes off.
+let plain = null
+// a new list: in turn from index, shuffled if shuffle is on
+function freshOrder(index) {
+  order = list.map((_, k) => k)
+  at = index
+  plain = null
+  if (shuffle) shuffleOrder()
+}
+// shuffled, with the song playing now first
+function shuffleOrder() {
+  const cur = order[at]
+  plain = order.slice()
+  const rest = order.filter((k) => k !== cur)
+  for (let k = rest.length - 1; k > 0; k--) {
     const j = Math.floor(Math.random() * (k + 1))
-    const t = order[k]
-    order[k] = order[j]
-    order[j] = t
+    const t = rest[k]
+    rest[k] = rest[j]
+    rest[j] = t
   }
-  const p = order.indexOf(cur)
-  order[p] = order[0]
-  order[0] = cur
+  order = [cur, ...rest]
   at = 0
+}
+// back to your order, from the song playing now
+function unshuffleOrder() {
+  if (!plain) return
+  const cur = order[at]
+  order = plain.filter((k) => k === cur || list[k])
+  plain = null
+  at = Math.max(0, order.indexOf(cur))
 }
 function next() {
   if (!own()) return player.nextVideo()
@@ -151,9 +165,11 @@ function run(c) {
   else if (a === 'seek') {
     if (num(x, 0, 864e5) !== null) player.seekTo(x / 1000, true)
   } else if (a === 'shuffle') {
+    const was = shuffle
     shuffle = !!x
-    if (own()) reorder()
-    else player.setShuffle(shuffle)
+    if (!own()) player.setShuffle(shuffle)
+    else if (shuffle && !was) shuffleOrder()
+    else if (!shuffle && was) unshuffleOrder()
   } else if (a === 'repeat') {
     loopTrack = x === 'track'
     loopAll = x === 'context'
@@ -174,9 +190,7 @@ function run(c) {
       player.loadPlaylist({ listType: 'playlist', list: x.playlistId, index })
     } else if (ids.length) {
       list = ids
-      order = []
-      at = Math.min(list.length - 1, index)
-      reorder()
+      freshOrder(Math.min(list.length - 1, index))
       playAt(at)
     }
   } else if ((a === 'add' || a === 'next-up') && x && ID.test(x.videoId || '')) {
@@ -188,19 +202,28 @@ function run(c) {
       list = cur && ID.test(cur) ? [cur] : []
       order = list.map((_, k) => k)
       at = 0
+      plain = null
     }
     if (list.length >= 500) return
     list.push(x.videoId)
-    if (a === 'add' || !order.length) order.push(list.length - 1)
-    else order.splice(at + 1, 0, list.length - 1)
+    const k = list.length - 1
+    if (a === 'add' || !order.length) order.push(k)
+    else order.splice(at + 1, 0, k)
+    // your own order, kept while shuffled, gets it in the same place
+    if (plain) {
+      if (a === 'add') plain.push(k)
+      else plain.splice(plain.indexOf(order[at]) + 1, 0, k)
+    }
     if (list.length === 1) playAt(0)
   } else if (a === 'remove' && own() && x) {
     // out of the queue (not the song playing)
     const p = pos(x.at)
     if (p === null || p === at) return
-    list[order[p]] = null
+    const gone = order[p]
+    list[gone] = null
     order.splice(p, 1)
     if (p < at) at--
+    if (plain) plain = plain.filter((k) => k !== gone)
   } else if (a === 'move' && own() && x) {
     // a song still to come, somewhere else among those still to come
     const f = pos(x.from)
