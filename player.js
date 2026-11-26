@@ -176,6 +176,19 @@ function run(c) {
       reorder()
       playAt(at)
     }
+  } else if (a === 'add' && x && ID.test(x.videoId || '')) {
+    // added to the queue: after everything lined up. A YouTube playlist playing by its id
+    // becomes Glowtide's own list from the song playing now.
+    if (!own()) {
+      const cur = (player.getVideoData() || {}).video_id
+      list = cur && ID.test(cur) ? [cur] : []
+      order = list.map((_, k) => k)
+      at = 0
+    }
+    if (list.length >= 500) return
+    list.push(x.videoId)
+    order.push(list.length - 1)
+    if (list.length === 1) playAt(0)
   } else if (a === 'replace' && x && ID.test(x.videoId || '') && ID.test(x.from || '')) {
     // another upload of the song that wouldn't play, in its place
     if (own() && list[order[at]] === x.from) {
