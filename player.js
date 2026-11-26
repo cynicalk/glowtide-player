@@ -42,7 +42,12 @@ function sample() {
   const was = moving
   moving = t > lastT + 0.15 && t - lastT < dt * 3 + 0.5
   if (!moving && (was || !stillSince)) stillSince = now
-  if (moving) stillSince = 0
+  if (moving) {
+    // it's playing: whatever said it hadn't started was wrong
+    stillSince = 0
+    clearTimeout(watchdog)
+    clearTimeout(skipTimer)
+  }
   lastT = t
   lastAt = now
 }
@@ -204,8 +209,9 @@ window.onYouTubeIframeAPIReady = () => {
       onStateChange: (e) => {
         // ended: the same song again, or straight on to the next
         if (e.data === 0) ended()
-        // A video whose owner blocks this kind of playback shows "Video unavailable"
-        // without firing onError. Watch for a start (time moving); if none comes, say so.
+        // A video whose owner blocks this kind of playback can show "Video unavailable"
+        // without firing onError (a refusal usually fires it at once). Watch for a start
+        // (time moving, after any ad); if none comes, say so.
         if (e.data === -1) {
           clearTimeout(watchdog)
           const startedAt = loads
@@ -221,7 +227,7 @@ window.onYouTubeIframeAPIReady = () => {
               })
               failed()
             }
-          }, 9000)
+          }, 30000) // long enough for YouTube's own ad before the song
         }
         if (e.data === 1 || e.data === 2) {
           clearTimeout(watchdog)
