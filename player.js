@@ -96,11 +96,12 @@ function playAt(i) {
   paused = false
   player.loadVideoById(list[order[at]])
 }
-// the play order: in turn, or shuffled with the song playing now first
+// the play order: in turn, or shuffled with the song playing now first (a song taken out of
+// the queue stays out)
 function reorder() {
   const n = list ? list.length : 0
   const cur = order.length ? order[at] : at
-  order = Array.from({ length: n }, (_, k) => k)
+  order = Array.from({ length: n }, (_, k) => k).filter((k) => k === cur || list[k])
   if (!shuffle) return void (at = cur)
   for (let k = n - 1; k > 0; k--) {
     const j = Math.floor(Math.random() * (k + 1))
@@ -131,6 +132,8 @@ function failed() {
 }
 const ID = /^[\w-]{11}$/
 const LIST_ID = /^[\w-]{2,64}$/
+// a place in the play order, or null
+const pos = (v) => (Number.isInteger(v) && v >= 0 && v < order.length ? v : null)
 const num = (v, lo, hi) =>
   typeof v === 'number' && isFinite(v) ? Math.max(lo, Math.min(hi, v)) : null
 function run(c) {
@@ -176,9 +179,10 @@ function run(c) {
       reorder()
       playAt(at)
     }
-  } else if (a === 'add' && x && ID.test(x.videoId || '')) {
-    // added to the queue: after everything lined up. A YouTube playlist playing by its id
-    // becomes Glowtide's own list from the song playing now.
+  } else if ((a === 'add' || a === 'next-up') && x && ID.test(x.videoId || '')) {
+    // added to the queue: after everything lined up ('add'), or right after the song playing
+    // ('next-up'). A YouTube playlist playing by its id becomes Glowtide's own list from the
+    // song playing now.
     if (!own()) {
       const cur = (player.getVideoData() || {}).video_id
       list = cur && ID.test(cur) ? [cur] : []
@@ -187,8 +191,25 @@ function run(c) {
     }
     if (list.length >= 500) return
     list.push(x.videoId)
-    order.push(list.length - 1)
+    if (a === 'add' || !order.length) order.push(list.length - 1)
+    else order.splice(at + 1, 0, list.length - 1)
     if (list.length === 1) playAt(0)
+  } else if (a === 'remove' && own() && x) {
+    // out of the queue (not the song playing)
+    const p = pos(x.at)
+    if (p === null || p === at) return
+    list[order[p]] = null
+    order.splice(p, 1)
+    if (p < at) at--
+  } else if (a === 'move' && own() && x) {
+    // a song still to come, somewhere else among those still to come
+    const f = pos(x.from)
+    const t = pos(x.to)
+    if (f === null || t === null || f <= at || t <= at || f === t) return
+    order.splice(t, 0, order.splice(f, 1)[0])
+  } else if (a === 'jump' && own() && x) {
+    const p = pos(x.at)
+    if (p !== null) playAt(p)
   } else if (a === 'replace' && x && ID.test(x.videoId || '') && ID.test(x.from || '')) {
     // another upload of the song that wouldn't play, in its place
     if (own() && list[order[at]] === x.from) {
